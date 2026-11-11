@@ -9,5 +9,3 @@ codegen-units = 1
 [profile.dev]
 debug = 1
 
-[patch.crates-io]
-makepad-platform = { path = "vendor/makepad-platform-1.0.0" }

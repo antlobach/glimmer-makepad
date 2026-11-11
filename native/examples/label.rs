@@ -31,6 +31,5 @@ fn main() {
     let title = "Glimmer Makepad — Label verification";
     let result = unsafe { gm_run(ctx, root, title.as_ptr(), title.len(), 780.0, 420.0, Some(event), label as usize as *mut c_void) };
     assert_eq!(result, 0);
-    assert_eq!(gm_context_destroy(ctx), 0);
-    println!("native loop returned; context destroyed");
+    panic!("gm_run returned after application startup");
 }

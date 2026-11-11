@@ -163,7 +163,7 @@ fn flush(c: &mut Context, cx: &mut Cx) -> Result<(), Error> {
 
 pub type Callback = unsafe extern "C" fn(u64, u64, u32, *mut c_void) -> i32;
 static LOOP_RUNNING: AtomicBool = AtomicBool::new(false);
-struct Runner { ui: WidgetRef, started: bool, closed: bool, error: Option<Error> }
+struct Runner { ui: WidgetRef, started: bool, closed: bool }
 struct ContextRunGuard(u64);
 impl Drop for ContextRunGuard {
     fn drop(&mut self) {
@@ -178,9 +178,10 @@ impl Drop for ContextRunGuard {
     }
 }
 
-/// Owns the native application loop. The callback runs on the UI thread and may
-/// call the C API. It must contain foreign-language exceptions and return nonzero
-/// on failure. Events: ready=1, click=2, change=3, closing=4, wake=5, submit=6.
+/// Runs a process-owning native application. After startup, Makepad shutdown
+/// terminates the process; this function does not return to its host.
+/// Callbacks run on the UI thread and must contain foreign exceptions.
+/// Events: ready=1, click=2, change=3, closing=4, wake=5, submit=6.
 /// # Safety
 /// `title` is a readable UTF-8 span. The callback and user data must remain valid
 /// until this function returns; the callback must not unwind across C frames.
@@ -205,17 +206,15 @@ pub unsafe extern "C" fn gm_run(ctx: u64, root: u64, title: *const u8, title_len
         if *PRESTART {
             return Err(Error::new(-6, "Makepad selected an auxiliary process mode"));
         }
-        static LOOP_USED: AtomicBool = AtomicBool::new(false);
-        if LOOP_RUNNING.load(Ordering::SeqCst) || LOOP_USED.swap(true, Ordering::SeqCst) {
-            return Err(Error::new(-6, "the native application loop can run once per process; reload the root inside it"));
+        if LOOP_RUNNING.swap(true, Ordering::SeqCst) {
+            return Err(Error::new(-6, "the native application loop is already running"));
         }
-        LOOP_RUNNING.store(true, Ordering::SeqCst);
         struct LoopGuard;
         impl Drop for LoopGuard { fn drop(&mut self) { LOOP_RUNNING.store(false, Ordering::SeqCst); } }
         let _guard = LoopGuard;
         with_context(ctx, |c| { c.running = true; c.root = Some(root); c.close_requested = false; c.dirty.clear(); c.dirty.extend(c.nodes.keys().copied()); Ok(()) })?;
         let _context_guard = ContextRunGuard(ctx);
-        let runner = Rc::new(RefCell::new(Runner { ui: WidgetRef::default(), started: false, closed: false, error: None }));
+        let runner = Rc::new(RefCell::new(Runner { ui: WidgetRef::default(), started: false, closed: false }));
         let shared = runner.clone();
         let notify = move |node, event| -> Result<(), Error> {
             if let Some(callback) = callback {
@@ -272,6 +271,10 @@ pub unsafe extern "C" fn gm_run(ctx: u64, root: u64, title: *const u8, title_len
                     with_context(ctx, |c| flush(c, cx))?;
                     cx.quit();
                 }
+                // Stock Makepad can terminate the process itself. Do the same
+                // when it dispatches Shutdown, including timer-driven quit.
+                // No host finally blocks or post-run cleanup are promised.
+                if matches!(event, Event::Shutdown) { std::process::exit(0); }
                 if runner.started && !runner.closed {
                     with_context(ctx, |c| flush(c, cx))?;
                     runner.ui.handle_event(cx, event, &mut Scope::empty());
@@ -279,9 +282,8 @@ pub unsafe extern "C" fn gm_run(ctx: u64, root: u64, title: *const u8, title_len
                 Ok(())
             })).unwrap_or_else(|_| Err(Error::new(-7, "Rust panic contained in the native event handler")));
             if let Err(error) = result {
-                let mut runner = shared.borrow_mut();
-                if runner.error.is_none() { runner.error = Some(error); }
-                cx.quit();
+                eprintln!("Glimmer Makepad application failed: {}", error.message);
+                std::process::exit(1);
             }
         }))));
         makepad_widgets::live_design(&mut cx.borrow_mut());
@@ -289,13 +291,17 @@ pub unsafe extern "C" fn gm_run(ctx: u64, root: u64, title: *const u8, title_len
         GmContainer::register_main_module(&mut cx.borrow_mut());
         cx.borrow_mut().init_cx_os();
         Cx::event_loop(cx.clone());
-        // Some platforms do not send Shutdown. Always give the language layer its
-        // teardown callback before releasing native widgets.
+        // Platforms that return instead of terminating still own this process.
+        // Deliver teardown before exit; never resume the host after startup.
         let mut runner = runner.borrow_mut();
-        if runner.started && !runner.closed { runner.closed = true; if let Err(error) = notify(root, 4) { runner.error = Some(error); } }
-        runner.ui = WidgetRef::default();
-        if let Some(error) = runner.error.take() { return Err(error); }
-        Ok(())
+        if runner.started && !runner.closed {
+            runner.closed = true;
+            if let Err(error) = notify(root, 4) {
+                eprintln!("Glimmer Makepad application failed: {}", error.message);
+                std::process::exit(1);
+            }
+        }
+        std::process::exit(0);
     })
 }
 #[no_mangle]

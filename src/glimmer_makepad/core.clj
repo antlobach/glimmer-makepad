@@ -130,7 +130,7 @@
   nil)
 
 (defn close!
-  "Request application shutdown on the GUI thread."
+  "Request application shutdown. After GUI startup, closing also ends Jolt."
   []
   (let [rt (current)]
     (schedule! #(native/check! (native/close-native (:context rt)))))
@@ -149,11 +149,11 @@
    Resources are confined to the caller's OS thread and released on return."
   [f]
   (let [ctx (native/handle! (native/context-create))
-        rt {:context ctx :handlers (atom {}) :queue (atom []) :closed? (atom false) :error (atom nil)}]
+        rt {:context ctx :handlers (atom {}) :queue (atom []) :closed? (atom false)}]
     (if-not (compare-and-set! runtime nil rt)
       (do (native/context-destroy ctx) (throw (ex-info "A Makepad context is already active" {})))
       (try
-        (when-not (= 1 (native/abi-version)) (throw (ex-info "Unsupported Makepad ABI version" {})))
+        (when-not (= 2 (native/abi-version)) (throw (ex-info "Unsupported Makepad ABI version" {})))
         (f {:context ctx :id (native/handle! (native/node-create ctx 1)) :tag :vbox})
         (finally
           (reset! (:closed? rt) true)
@@ -172,7 +172,11 @@
                              (try
                                (case event
                                  1 ((:mount! lifecycle) root :vbox)
-                                 4 ((:unmount! lifecycle))
+                                 4 (do
+                                     (reset! (:closed? rt) true)
+                                     (reset! (:queue rt) [])
+                                     (reset! backend/loop-running? false)
+                                     ((:unmount! lifecycle)))
                                  5 (drain! rt)
                                  2 (when-let [handler (get-in @(:handlers rt) [node :on-click])] (handler))
                                  3 (when-let [handler (get-in @(:handlers rt) [node :on-change])]
@@ -181,7 +185,10 @@
                                      (handler (native/read-text (:context rt) node)))
                                  (throw (ex-info "Unknown Makepad event" {:event event :node node})))
                                0
-                               (catch Throwable error (compare-and-set! (:error rt) nil error) 1)))
+                               (catch Throwable error
+                                 (binding [*out* *err*]
+                                   (println "Glimmer Makepad callback failed:" error))
+                                 1)))
                            [:uint64 :uint64 :uint32 :pointer] :int32 :collect-safe)]
             (when (pos? (alength title)) (ffi/write-array p title))
             (reset! backend/loop-running? true)
@@ -189,7 +196,6 @@
               (let [result (native/run-native (:context root) (:id root) p (alength title)
                                              (double (get opts :width 900)) (double (get opts :height 640))
                                              callback ffi/null)]
-                (when-let [error @(:error rt)] (throw error))
                 (native/check! result))
               (finally
                 (reset! backend/loop-running? false)

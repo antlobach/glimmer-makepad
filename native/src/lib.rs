@@ -50,7 +50,7 @@ pub(crate) unsafe fn utf8<'a>(data: *const u8, len: usize) -> Result<&'a str, Er
 }
 
 #[no_mangle]
-pub extern "C" fn gm_abi_version() -> u32 { 1 }
+pub extern "C" fn gm_abi_version() -> u32 { 2 }
 /// Borrowed thread-local error string. Valid until the next failing call on this thread.
 #[no_mangle]
 pub extern "C" fn gm_last_error() -> *const c_char { LAST_ERROR.with(|s| s.borrow().as_ptr()) }
