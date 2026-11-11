@@ -1,0 +1,13 @@
+[package]
+name = "glimmer-makepad"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "A retained Makepad widget engine with a C ABI for Jolt Glimmer"
+
+[lib]
+name = "glimmer_makepad"
+crate-type = ["cdylib", "staticlib", "rlib"]
+
+[dependencies]
+makepad-widgets = "=1.0.0"
