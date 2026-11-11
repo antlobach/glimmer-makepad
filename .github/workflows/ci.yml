@@ -20,6 +20,19 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libx11-dev libxcursor-dev libxrandr-dev libxi-dev libasound2-dev libpulse-dev libgl1-mesa-dev
       - run: cargo test --workspace --locked
       - run: cargo build --workspace --locked
+      - name: Exercise the C ownership and allocation boundary
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          cc -Wall -Wextra -Werror -Iinclude examples/ownership.c -Ltarget/debug -lglimmer_makepad -Wl,-rpath,"$PWD/target/debug" -o /tmp/ownership
+          /tmp/ownership
+      - name: Install pinned Jolt and exercise the real Glimmer reconciler
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/jolt-lang/jolt/v0.8.25/install -o /tmp/install-jolt
+          bash /tmp/install-jolt --version v0.8.25 --dir "$RUNNER_TEMP/jolt"
+          "$RUNNER_TEMP/jolt/jolt" -M:test
   checks:
     if: always()
     needs: [native]

@@ -1,0 +1,12 @@
+{:paths ["src"]
+ :deps {jolt-lang/glimmer
+        {:git/url "https://github.com/jolt-lang/glimmer"
+         :git/sha "226ff87f59fb990b2e7260883008daf156118fc2"}}
+ :jolt/native [{:name "glimmer-makepad"
+                :darwin ["target/debug/libglimmer_makepad.dylib"]
+                :linux ["target/debug/libglimmer_makepad.so"]
+                :windows ["target/debug/glimmer_makepad.dll"]}]
+ :aliases {:test {:extra-paths ["test"]
+                  :main-opts ["-m" "glimmer-makepad.test-runner"]}
+           :demo {:extra-paths ["examples"]
+                  :main-opts ["-m" "counter"]}}}

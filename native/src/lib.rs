@@ -1,6 +1,10 @@
 //! Retained widget ownership and a C ABI for Glimmer. See include/glimmer_makepad.h.
 mod model;
 mod metrics;
+mod render;
+pub use render::{gm_run, gm_close, gm_wake};
+mod style;
+pub use style::{GmStyle, gm_node_set_style, gm_node_get_style};
 
 use model::{Context, Error, Kind};
 use std::{cell::RefCell, collections::HashMap, ffi::{c_char, CString}, panic::{catch_unwind, AssertUnwindSafe}, sync::atomic::{AtomicU64, Ordering}};
@@ -86,3 +90,43 @@ pub extern "C" fn gm_child_at(ctx: u64, parent: u64, index: usize) -> u64 {
 }
 #[no_mangle]
 pub extern "C" fn gm_context_node_count(ctx: u64) -> i64 { boundary(-1, || with_context(ctx, |c| Ok(c.nodes.len() as i64))) }
+
+/// # Safety
+/// `data` must be readable for `len` bytes, unless `len` is zero.
+#[no_mangle]
+pub unsafe extern "C" fn gm_node_set_text(ctx: u64, node: u64, data: *const u8, len: usize) -> i32 {
+    status(|| { let text = utf8(data, len)?; with_context(ctx, |c| c.set_text(node, text)) })
+}
+/// Returns the UTF-8 byte length, or -1 on error. A null buffer with capacity 0
+/// queries the required size. A short buffer fails without writing any bytes.
+/// # Safety
+/// A non-null buffer must be writable for `capacity` bytes.
+#[no_mangle]
+pub unsafe extern "C" fn gm_node_copy_text(ctx: u64, node: u64, buffer: *mut u8, capacity: usize) -> i64 {
+    boundary(-1, || with_context(ctx, |c| {
+        let text = &c.node(node)?.text;
+        if buffer.is_null() && capacity == 0 { return Ok(text.len() as i64); }
+        if buffer.is_null() || capacity < text.len() { return Err(Error::new(-2, "text buffer is too small")); }
+        std::ptr::copy_nonoverlapping(text.as_ptr(), buffer, text.len());
+        Ok(text.len() as i64)
+    }))
+}
+
+/// # Safety
+/// `data` must be readable for `len` bytes, unless `len` is zero.
+#[no_mangle]
+pub unsafe extern "C" fn gm_node_set_placeholder(ctx: u64, id: u64, data: *const u8, len: usize) -> i32 {
+    status(|| {
+        let text = utf8(data, len)?;
+        with_context(ctx, |c| {
+            let node = c.nodes.get_mut(&id).ok_or_else(|| Error::new(-3, "invalid widget handle"))?;
+            if node.kind != Kind::TextInput { return Err(Error::new(-5, "placeholder requires a text input")); }
+            if node.placeholder != text {
+                node.placeholder.clear();
+                node.placeholder.push_str(text);
+                c.mark(id, 8);
+            }
+            Ok(())
+        })
+    })
+}
