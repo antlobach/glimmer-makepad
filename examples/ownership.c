@@ -4,7 +4,7 @@
 #include <stdio.h>
 
 int main(void) {
-    assert(gm_abi_version() == 1);
+    assert(gm_abi_version() == GM_ABI_VERSION);
     uint64_t ctx = gm_context_create();
     uint64_t root = gm_node_create(ctx, GM_VBOX);
     uint64_t warm = gm_node_create(ctx, GM_HBOX);

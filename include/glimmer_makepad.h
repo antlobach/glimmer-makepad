@@ -12,6 +12,7 @@ extern "C" {
  * Pointers must be valid, correctly aligned C storage for their declared size.
  * Only gm_wake and the global memory counters may be called from any thread.
  */
+enum { GM_ABI_VERSION = 2 };
 enum gm_kind { GM_VBOX = 1, GM_HBOX = 2, GM_LABEL = 3, GM_BUTTON = 4, GM_TEXT_INPUT = 5 };
 enum gm_status {
     GM_OK = 0, GM_INVALID_CONTEXT = -1, GM_INVALID_ARGUMENT = -2,
@@ -50,9 +51,14 @@ int64_t gm_node_copy_text(uint64_t ctx, uint64_t node, uint8_t *buffer, size_t c
 int32_t gm_node_set_placeholder(uint64_t ctx, uint64_t node, const uint8_t *data, size_t len);
 int32_t gm_node_set_style(uint64_t ctx, uint64_t node, const gm_style *style); /* atomic validation */
 int32_t gm_node_get_style(uint64_t ctx, uint64_t node, gm_style *style);
-/* One native application loop per process, on its OS main thread. Reload the root
- * within the running loop. Callback/data stay valid until return. Desktop entry
- * point: mobile activity/application bootstrapping is not supplied by this API. */
+/* Process-owning application entry point, on the OS main thread. After startup,
+ * GUI shutdown terminates the entire host process (including Jolt/nREPL); gm_run
+ * does not return and host finally blocks/destructors must not be relied upon.
+ * Validation failures before startup return a negative gm_status.
+ * GM_CLOSING is delivered before normal termination; callback failure ends the
+ * process with a nonzero exit status. Reload roots within the running loop.
+ * Callback/data remain valid for the application lifetime.
+ * Desktop entry point: mobile bootstrapping is not supplied by this API. */
 int32_t gm_run(uint64_t ctx, uint64_t root, const uint8_t *title, size_t title_len,
                double width, double height, gm_callback callback, void *data);
 int32_t gm_close(uint64_t ctx);

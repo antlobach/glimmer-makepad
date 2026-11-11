@@ -46,8 +46,6 @@
     (try
       (when stop-repl (println :nrepl-port (:port (meta stop-repl))))
       (ui/run app :title "Glimmer Makepad" :width 940 :height 690)
-      (when worker @worker)
-      (println :shutdown (makepad/memory-stats))
       (finally
         (when worker (future-cancel worker))
         (when stop-repl (stop-repl))
